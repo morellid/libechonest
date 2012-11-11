@@ -34,10 +34,20 @@
 #import "ENAPI.h"
 #import "ENSigner.h"
 #import "NSObject+SBJSON.h"
-#import "ASIHTTPRequest.h"
+//#import "ASIHTTPRequest.h"
+#import "SBJsonParser.h"
+
+//#define DEBUGLOG 1
 
 @interface ENAPIRequest()
-
+{
+    NSURLResponse *_httpresponse;
+    NSError *_nserror;
+    NSMutableData *_receivedData;
+    NSURLConnection *_theConnection;
+    BOOL _completed;
+    NSString *responseString;
+}
 - (void)_prepareToStart;
 - (NSString *)_constructURL;
 - (NSInteger)_generateTimestamp;
@@ -45,7 +55,7 @@
 - (NSString *)_constructBaseSignatureForOAuth;
 - (void)_includeOAuthParams;
 
-@property (strong) ASIHTTPRequest *request;
+@property (strong) NSMutableURLRequest *request;
 @property (strong,readwrite) NSMutableDictionary *params;
 @property (strong) NSDictionary *_responseDict;
 @property (assign) BOOL isAPIRequest;
@@ -98,14 +108,24 @@
 
 - (void)startSynchronous {
     [self _prepareToStart];
-    self.request.delegate = self;
-    [self.request startSynchronous];
+    NSURLResponse *_response;
+    NSError *_error;
+    NSData *data = [NSURLConnection sendSynchronousRequest:request returningResponse:&_response error:&_error];
+    _httpresponse = _response;
+    _nserror = _error;
+    
+    responseString = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+#ifdef DEBUGLOG
+    NSLog(@"received %@", responseString);
+#endif
+    _completed = YES;
+    [self requestFinished:_httpresponse];
+
 }
 
 - (void)startAsynchronous {
     [self _prepareToStart];
-    self.request.delegate = self;
-    [self.request startAsynchronous];
+    _theConnection=[[NSURLConnection alloc] initWithRequest:request delegate:self];
 }
 
 - (void)setValue:(id)value forParameter:(NSString *)param {
@@ -125,33 +145,34 @@
 }
 
 - (void)cancel {
-    [self.request clearDelegatesAndCancel];
+    [_theConnection cancel];
 }
 
 - (BOOL)complete {
-    return self.request.complete;
+    return _completed;
 }
 
 #pragma mark - Properties
 
 - (NSDictionary *)response {
     if (nil == _responseDict) {
-        NSDictionary *dict = [self.request.responseString JSONValue];
+        NSDictionary *dict = [responseString JSONValue];
         _responseDict = dict;
     }
     return _responseDict;
 }
 
 - (NSString *)responseString {
-    return self.request.responseString;
+    return responseString;
 }
 
 - (NSInteger)responseStatusCode {
-    return self.request.responseStatusCode;
+    NSHTTPURLResponse* httpResponse = (NSHTTPURLResponse*)_httpresponse;
+    return [httpResponse statusCode];
 }
 
 - (NSError *)error {
-    return self.request.error;
+    return _nserror;
 }
 
 - (NSUInteger)echonestStatusCode {
@@ -163,18 +184,18 @@
 }
 
 - (NSURL *)requestURL {
-    return self.request.url;
+    return self.request.URL;
 }
 
 #pragma mark - ASIHTTPRequestDelegate Methods
 
-- (void)requestFinished:(ASIHTTPRequest *)request {
+- (void)requestFinished:(NSURLResponse *)request {
     if ([delegate respondsToSelector:@selector(requestFinished:)]) {
         [delegate requestFinished:self];
     }
 }
 
-- (void)requestFailed:(ASIHTTPRequest *)request {
+- (void)requestFailed:(NSURLResponse *)request {
     if([delegate respondsToSelector:@selector(requestFailed:)]) {
         [delegate requestFailed:self];
     }
@@ -183,16 +204,24 @@
 #pragma mark - Private Methods
 
 - (void)_prepareToStart {
+    NSMutableURLRequest *_request = [[NSMutableURLRequest alloc] init];
     if (nil != self.analysisURL) {
-        self.request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:self.analysisURL]];
+        [_request setURL:[NSURL URLWithString:self.analysisURL]]; // Assumes you have created an NSURL * in "myURL"
+
     } else {
         // add OAuth parameter if we're hitting a secured endpoint
         if ([ENAPI isSecuredEndpoint:self.endpoint]) {
             [self _includeOAuthParams];
         }
-        self.request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:[self _constructURL]]];
-
+        [_request setURL: [NSURL URLWithString:[self _constructURL]]];
     }
+    [_request setHTTPMethod:@"GET"];
+    [_request setValue:@"application/json" forHTTPHeaderField:@"content-type"];
+    _receivedData = [NSMutableData data];
+    _completed = NO;
+    _httpresponse = nil;
+    _nserror = nil;
+    self.request = request;
 }
 
 - (NSString *)_constructURL {
@@ -241,5 +270,72 @@
 
     [self setValue: signature forParameter:@"oauth_signature"];
 }
+
+#pragma NSUrlConnectionDelegate
+
+
+- (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)_response
+{
+    // This method is called when the server has determined that it
+    // has enough information to create the NSURLResponse.
+    // It can be called multiple times, for example in the case of a
+    // redirect, so each time we reset the data.
+    // receivedData is an instance variable declared elsewhere.
+    [_receivedData setLength:0];
+    _httpresponse = _response;
+}
+
+- (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data
+{
+    // Append the new data to receivedData.
+    // receivedData is an instance variable declared elsewhere.
+    [_receivedData appendData:data];
+}
+
+- (void)connection:(NSURLConnection *)connection
+  didFailWithError:(NSError *)error
+{
+    // inform the user
+    NSLog(@"Connection failed! Error - %@ %@",
+          [error localizedDescription],
+          [[error userInfo] objectForKey:NSURLErrorFailingURLStringErrorKey]);
+    _completed = YES;
+    [self requestFailed:_httpresponse];
+}
+
+- (void)connectionDidFinishLoading:(NSURLConnection *)connection
+{
+    // do something with the data
+    // receivedData is declared as a method instance elsewhere
+#ifdef DEBUGLOG
+    NSLog(@"Succeeded! Received %d bytes of data",[receivedData length]);
+#endif
+    responseString = [[NSString alloc] initWithData:_receivedData encoding:NSUTF8StringEncoding];
+    SBJsonParser *jsonParser = [[SBJsonParser alloc] init];
+#ifdef DEBUGLOG
+    NSLog(@"received %@", responseString);
+#endif
+    _completed = YES;
+    [self requestFinished:_httpresponse];
+}
+
+-(NSURLRequest *)connection:(NSURLConnection *)connection
+            willSendRequest:(NSURLRequest *)request
+           redirectResponse:(NSURLResponse *)redirectResponse
+{
+    NSURLRequest *newRequest = request;
+    if (redirectResponse) {
+        newRequest = nil;
+    }
+    return newRequest;}
+
+-(NSCachedURLResponse *)connection:(NSURLConnection *)connection
+                 willCacheResponse:(NSCachedURLResponse *)cachedResponse
+{
+    return nil;
+}
+
+
+
 
 @end

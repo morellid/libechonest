@@ -40,7 +40,7 @@
 
 @end
 
-@interface ENAPIRequest : NSObject {
+@interface ENAPIRequest : NSObject <NSURLConnectionDelegate> {
 
 }
 
