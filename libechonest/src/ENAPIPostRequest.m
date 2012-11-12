@@ -29,15 +29,15 @@
 //  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #import "ENAPIPostRequest.h"
-#import "ASIFormDataRequest.h"
-#import "ASIProgressDelegate.h"
+//#import "ASIFormDataRequest.h"
+//#import "ASIProgressDelegate.h"
 #import "ENAPI.h"
 #import "ENAPI_utils.h"
 #import "ENAPIPostRequest.h"
 #import "NSObject+SBJSON.h"
 
 @interface ENAPIPostRequest() 
-@property (strong) ASIFormDataRequest *request;
+@property (strong) NSMutableURLRequest *request;
 @property (strong) NSDictionary *_responseDict;
 @property (nonatomic, assign) unsigned long long uploadFileSize;
 @property (nonatomic, assign) unsigned long long uploadBytesSent;
@@ -50,32 +50,41 @@
     
     self = [super init];
     if (self) {
-        self.request = [ASIFormDataRequest requestWithURL:url];
+        self.request = [[NSMutableURLRequest alloc] init];
+        [request setURL:url]; // Assumes you have created an NSURL * in "myURL"
+        [request setHTTPMethod:@"POST"];
+        [request setValue:@"application/json" forHTTPHeaderField:@"content-type"];
+        
+        /*
+         
+        [request setHTTPBody:myJSONData]; // Assumes you have created an NSData * for your JSON
+
         self.request.postFormat = ASIMultipartFormDataPostFormat;
-        [self.request setPostValue:[ENAPI apiKey] forKey:@"api_key"];
+        [self setPostValue:[ENAPI apiKey] forKey:@"api_key"];
         self.request.delegate = self;
         self.request.uploadProgressDelegate = self;
         self.request.timeOutSeconds = 180;
+         */
     }
     return self;
 }
 
 - (void)setPostValue:(NSObject *)value forKey:(NSString *)key {
-    [self.request setPostValue:value forKey:key];
+//    [self.request setPostValue:value forKey:key];
 }
 
 - (void)setFile:(NSString *)path forKey:(NSString *)key {
-    [self.request setFile:path forKey:key];
+//    [self.request setFile:path forKey:key];
 }
 
 - (void)startSynchronous {
      // let's make sure we're still around when the network call returns
-    [self.request startSynchronous];
+//    [self.request startSynchronous];
 }
 
 - (void)startAsynchronous {
      // let's make sure we're still around when the network call returns
-    [self.request startAsynchronous];
+//    [self.request startAsynchronous];
 }
 
 + (ENAPIPostRequest *)requestWithURL:(NSURL *)url {
@@ -155,6 +164,8 @@
     return postRequest;            
 }
 
+/*
+ 
 #pragma mark - ASIProgressDelegate
 
 - (void)request:(ASIHTTPRequest *)request didSendBytes:(long long)bytes {
@@ -181,23 +192,24 @@
     }
 }
 
+ */
 
 #pragma mark - Properties
 
 - (NSDictionary *)response {
     if (nil == _responseDict) {
-        NSDictionary *dict = [self.request.responseString JSONValue];
-        _responseDict = dict;
+//        NSDictionary *dict = [self.request.responseString JSONValue];
+//        _responseDict = dict;
     }
     return _responseDict;
 }
 
 - (NSUInteger)responseStatusCode {
-    return self.request.responseStatusCode;
+//    return self.request.responseStatusCode;
 }
 
 - (NSError *)error {
-    return self.request.error;
+//    return self.request.error;
 }
 
 - (NSUInteger)echonestStatusCode {

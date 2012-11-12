@@ -221,7 +221,7 @@
     _completed = NO;
     _httpresponse = nil;
     _nserror = nil;
-    self.request = request;
+    self.request = _request;
 }
 
 - (NSString *)_constructURL {
